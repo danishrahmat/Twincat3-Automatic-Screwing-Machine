@@ -1,0 +1,14 @@
+<?xml version="1.0"?>
+<TcLicenseInfo xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://www.beckhoff.com/schemas/2011/11/TcLicenseInfo">
+	<LicenseInfo>
+		<SystemId>{9A342EFA-9026-0B5F-AC17-FBB2A40D3215}</SystemId>
+		<IssueTime>2025-12-23T01:36:00</IssueTime>
+		<ExpireTime>2025-12-31T00:00:00</ExpireTime>
+		<LicenseKey>142e6d0337a493ba885d6442c600edfaeee5685a182b9b47b56df24ae0a5ff7e5bf88c9148488e0bb6a425babdbee7377701a37fedf16a54353ebcc7e1eff0d740f549c2d5380d6141ecf47cf76f97cb8fcb9555309e94706d794c2b8c4d3f56e0c0447db70ebe463240062f2f79d2b87535f3545aa704c1a47e29bad6dfd5b30fae393954d72f04991e39d4c6c34bd6a1ebdb7132c0a94d154a798c098957148977c4c940009ff46ac7c69dd08bc2ccd102d8eb7bd0525f0906977e0e6e65962f1ba9bbe1e0e3f6cbefd96f1fd309980b14e885629b8bdac8ded651b49b4af150a3460712f819b7ddd5dee5e5e4e510a0352aaaeb636d5a96b40a39129e9042</LicenseKey>
+		<License>
+			<LicenseId>{66689887-CCBD-452C-AC9A-039D997C6E66}</LicenseId>
+			<Name>TC3 PLC</Name>
+			<OrderNo>TC1200</OrderNo>
+		</License>
+	</LicenseInfo>
+</TcLicenseInfo>

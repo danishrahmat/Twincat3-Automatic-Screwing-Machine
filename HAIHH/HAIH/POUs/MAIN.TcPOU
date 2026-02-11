@@ -1,0 +1,1003 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.14">
+  <POU Name="MAIN" Id="{b5fea7c3-a00f-4bf0-9901-f1d5d304fd4a}" SpecialFunc="None">
+    <Declaration><![CDATA[PROGRAM MAIN
+VAR
+	//				INPUT
+	IN_EStop,IN_auto,IN_manual,IN_resetPB AT %I*: BOOL;
+	IN_startIN_PB,IN_startOut_PB AT %I*: BOOL;
+	IN_partsensor,IN_doorsensor AT %I*: BOOL;
+	IN_curtain_in,IN_curtain_out AT %I*: BOOL;
+	IN_rs_cyl_up,IN_rs_cyl_down AT %I*: BOOL;
+	IN_screwdetect_1,IN_screwdetect_2,IN_screwdetect_3,IN_screwfeed_done AT %I*: BOOL; 
+	IN_rs_linear_home,IN_rs_linear_right,IN_rs_linear_left AT %I*: BOOL;
+	IN_torque_M1 AT %I*: BOOL;
+	IN_torque_M2 AT %I*: BOOL;
+	IN_torque_M3 AT %I*: BOOL;
+	
+	//				OUTPUT
+	OUT_cyl,OUT_servo_M1,OUT_servo_M2,OUT_servo_M3,OUT_send_screw,OUT_tower_red,OUT_tower_yellow,OUT_tower_green,OUT_tower_buzzer, main_page AT %Q*: BOOL;;
+
+	//-------------flag variable ----------------
+	
+	Screw1_detect,Screw2_detect,Screw3_detect,allscrew_feed,screw_reset AT %I* : BOOL;
+	check_signal,test_torque AT %I* : BOOL;
+	machine_ready,machine_running,part_cycle AT %I* : BOOL ;
+	home_flag,workplace_flag,out_flag,not_safe,need_initilize,error_signal : BOOL;
+	home_position,linear_homeposition,working_position,linear_workingposition,out_position,linear_outposition : DINT;
+	locked_reset,servo_on : BOOL;
+	motor1_torque,motor2_torque,motor3_torque,torque_error AT %I* : BOOL;
+	SpeedM1,SpeedM2,SpeedM3 : INT;
+	TorqueM1,TorqueM2,TorqueM3 : INT ;
+	maintainace_mode : BOOL;
+	m_home_position,m_working_position,m_out_position : BOOL;
+	m_send_home,m_send_working,m_send_out AT %Q* : BOOL;
+	ib_torqueM1,ib_torqueM2,ib_torqueM3: BOOL;
+	servo_M1,servo_M2,servo_M3 : BOOL;
+	StartTimer : BOOL;
+	ErrorTimer : BOOL;
+	
+	//------------- flag timer --------------------
+	curtain_out_falling_edge, curtain_in_falling_edge: BOOL;
+	F_TRIG_curtain_out, F_TRIG_curtain_in: F_TRIG;
+    TP1, TP2: TP;               // Timer pulse instance	   	
+	TON1,TON2,TON3,TON4,TON5 : TON;
+
+	//-------------- buzzer variable -------------
+	timer : TON;
+    state : INT := 1;
+	
+	//-------------- druve control  motor screw----------------
+	//         drive control 
+	
+	M1_ControlWord,M2_ControlWord,M3_ControlWord AT %Q* : UINT ; 	
+	M1_StatusWord,M2_StatusWord,M3_StatusWord AT %I* : UINT;
+	M1_AlarmStatus,M2_AlarmStatus,M3_AlarmStatus AT %I* : UINT;
+	M1_ModeOfOperation,M2_ModeOfOperation,M3_ModeOfOperation AT %Q* : SINT;
+	
+	//  Motion 
+	M1_TargetVelocity,M2_TargetVelocity,M3_TargetVelocity AT %Q* : DINT;
+	M1_TargetTorque,M2_TargetTorque, M3_TargetTorque AT %Q* : INT;
+	
+	M1_ActualVelocity,M2_ActualVelocity,M3_ActualVelocity AT %I*: DINT;
+	M1_ActualTorque,M2_ActualTorque,M3_ActualTorque AT %I*: INT;
+	
+	// Internal Flag 
+	M1_DriveEnabled,M2_DriveEnabled,M3_DriveEnabled : BOOL := FALSE;
+	M1_MotionActive,M2_MotionActive,M3_MotionActive : BOOL := FALSE;
+	
+	
+	//----------- drivr motor linear actuator ---------
+	// 			drive control
+	linear_controlword AT %Q* : UINT;
+	workingposition,homeposition,outposition,linear_TargetVelocity AT %Q* : DINT;
+	linear_statusword  AT %I*: UINT;
+	linear_actualposition AT %I* : DINT;
+	linear_ModeOfOperation,linear_homingmethod AT %Q* : SINT;
+	linear_ProfileTargetacceleration,linear_ProfileTargetdeceleration,linear_ProfileTargetVelocity,linear_homingvelocity_fast,linear_homingvelocity_slow,linear_homingacceleration AT %Q* : UDINT;
+	linear_homing_offset AT %Q* : DINT;
+	
+	
+	linear_DriveEnabled,linear_MotionActive : BOOL := FALSE;	
+
+	test_torque1: BOOL;
+	sendscrew_pulse: BOOL;
+	homing_flag: BOOL;
+	Manual_mode: BOOL;
+	tBeat  : TON;
+    Step   : INT := 0;
+    Buzzer : BOOL;   
+	HmiPulse: BOOL;
+END_VAR
+]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[ 
+//------------- declaration variable -----------------
+
+GVL.SpeedM1 := M1_TargetVelocity;
+GVL.SpeedM2 := M2_TargetVelocity;
+GVL.SpeedM3 := M3_TargetVelocity;
+
+GVL.TorqueM1 := M1_TargetTorque;
+GVL.TorqueM2 := M2_TargetTorque;
+GVL.TorqueM3 := M3_TargetTorque;
+
+GVL.SpeedLinear := linear_TargetVelocity;
+GVL.homeposition := homeposition;
+GVL.workingposition := workingposition;
+GVL.outposition := outposition;
+
+OUT_send_screw := TP1.Q;
+check_signal := TP2.Q;
+//test_torque := TON1.Q;
+TON1(IN := StartTimer, PT := T#2S); 
+TON2 (IN := ErrorTimer, PT := T#4S);
+TP1(IN := sendscrew_pulse, PT := T#5MS);
+TP2(IN := HmiPulse, PT := T#500MS);
+//test_torque1 := TON2.Q;
+//ib_torqueM1 := TON3.Q;
+ib_torqueM2 := TON4.Q;
+ib_torqueM3 := TON5.Q;
+OUT_tower_buzzer := buzzer;
+//curtain_out_falling_edge := F_TRIG_curtain_out(CLK := NOT IN_curtain_out);
+
+
+
+F_TRIG_curtain_out(CLK := IN_curtain_out);
+curtain_out_falling_edge := F_TRIG_curtain_out.Q;
+(*
+IF F_TRIG_curtain_out.Q THEN 
+	curtain_out_falling_edge := TRUE;
+END_IF
+*)
+
+F_TRIG_curtain_in(CLK := IN_curtain_in);
+curtain_in_falling_edge := F_TRIG_curtain_in.Q;
+(*
+IF F_TRIG_curtain_in.Q THEN 
+	curtain_in_falling_edge := TRUE;
+END_IF
+*)
+//curtain_in_falling_edge := F_TRIG_curtain_in(CLK := NOT IN_curtain_in);	
+IF NOT In_auto THEN
+	Manual_mode := TRUE;
+ELSIF In_auto THEN
+	Manual_mode := FALSE;
+	
+END_IF
+IF NOT M1_DriveEnabled THEN
+	M1_ControlWord := 16#06;
+	IF (M1_StatusWord AND 16#0001) <> 0 THEN
+		M1_ControlWord := 16#07;
+	END_IF
+	
+	IF (M1_StatusWord AND 16#0002) <> 0 THEN
+		M1_ControlWord := 16#1E;
+		M1_DriveEnabled := TRUE;
+		M1_ModeOfOperation := 3;
+	END_IF
+END_IF
+
+IF M1_DriveEnabled AND NOT M1_MotionActive THEN 
+	M1_TargetVelocity := 10000000;
+	M1_MotionActive := TRUE;
+END_IF
+
+IF NOT M2_DriveEnabled THEN
+	M2_ControlWord := 16#06;
+	IF (M2_StatusWord AND 16#0001) <> 0 THEN
+		M2_ControlWord := 16#07;
+	END_IF
+	
+	IF (M2_StatusWord AND 16#0002) <> 0 THEN
+		M2_ControlWord := 16#1E;
+		M2_DriveEnabled := TRUE;
+		M2_ModeOfOperation := 3;
+	END_IF
+END_IF
+
+IF M2_DriveEnabled AND NOT M2_MotionActive THEN 
+	M2_TargetVelocity := 10000000;
+	M2_MotionActive := TRUE;
+END_IF
+  
+
+IF NOT M3_DriveEnabled THEN
+	M3_ControlWord := 16#06;
+	IF (M3_StatusWord AND 16#0001) <> 0 THEN
+		M3_ControlWord := 16#07;
+	END_IF
+	
+	IF (M3_StatusWord AND 16#0002) <> 0 THEN
+		M3_ControlWord := 16#1E;
+		M3_DriveEnabled := TRUE;
+		M3_ModeOfOperation := 3;
+	END_IF
+END_IF
+
+IF M3_DriveEnabled AND NOT M3_MotionActive THEN 
+	M3_TargetVelocity := 10000000;
+	M3_MotionActive := TRUE;
+END_IF
+
+// -------- ib screw i/o-----------
+
+IF IN_screwdetect_1 then
+	Screw1_detect := TRUE;
+END_IF
+
+IF IN_screwdetect_2 then
+	Screw2_detect:= TRUE;
+END_IF
+
+If IN_screwdetect_3 then
+	Screw3_detect := TRUE;
+END_IF
+
+IF screw_reset then
+	Screw1_detect := FALSE;
+	Screw2_detect := FALSE;
+	Screw3_detect := FALSE;
+END_IF
+
+IF (IN_auto OR Manual_mode) AND Screw1_detect AND Screw2_detect AND Screw3_detect THEN
+	allscrew_feed := TRUE;
+ELSIF (IN_auto OR Manual_mode) AND screw_reset THEN
+	allscrew_feed := FALSE;
+ELSIF IN_manual and IN_resetPB THEN 
+	allscrew_feed := FALSE;
+END_If
+
+//-----------------------------------------------------------
+
+//----------- ib untuk RESET part cycle ------------------
+
+IF (IN_auto OR Manual_mode) AND NOT IN_partsensor AND curtain_out_falling_edge THEN
+	part_cycle:= FALSE;
+ELSIF IN_manual AND IN_resetPB THEN
+	part_cycle:= FALSE;
+END_IF
+//-----------------------------------------------------------
+
+//------------ safety automate ------------------------------- 
+
+IF IN_auto AND machine_running AND (IN_curtain_in OR IN_curtain_out OR NOT IN_EStop) THEN
+	not_safe := TRUE;
+ELSIF Manual_mode AND machine_running AND (IN_curtain_in OR IN_curtain_out OR NOT IN_EStop) THEN
+	not_safe := TRUE;
+END_IF
+
+IF IN_resetPB THEN
+	not_safe := FALSE;
+END_IF
+//---------------------------------------------------------------
+
+//---------------- ib for manual position -----------------------
+IF NOT main_page AND NOT In_Auto THEN 
+	need_initilize := TRUE;
+	state := 10;
+ELSIF  main_page AND need_initilize THEN 
+	state := 9;
+END_IF
+
+IF maintainace_mode AND IN_EStop AND m_home_position THEN 
+	workingposition := 415000;
+	linear_controlword  := 31;
+	IF linear_actualposition = 415000 AND m_home_position THEN
+		linear_controlword  := 15;
+		//m_home_done := TRUE;
+	END_IF
+END_IF
+
+IF maintainace_mode AND IN_EStop AND m_working_position THEN 
+	workingposition := 200000;
+	linear_controlword  := 31;
+	IF linear_actualposition = 200000 AND m_working_position THEN
+		linear_controlword  := 15;
+		//m_working_done := TRUE;
+	END_IF
+END_IF
+
+IF maintainace_mode AND IN_EStop AND m_out_position THEN 
+	workingposition := 1000;
+	linear_controlword  := 31;	//pi out
+	IF linear_actualposition = 1000 AND  m_out_position THEN
+		linear_controlword  := 15;
+		//m_out_done := TRUE;
+	END_IF
+END_IF
+
+//---------------------------------------------------------------
+
+//-----------------------ERROR SIGNAL ---------------------
+
+IF (not_safe OR torque_error OR NOT IN_EStop) THEN
+	error_signal := TRUE;
+	OUT_tower_red := TRUE;
+	OUT_tower_yellow := FALSE;
+END_IF
+
+//------------- auto mode flagging position -------------------
+
+CASE state OF
+
+	1 : 
+		IF NOT linear_DriveEnabled THEN
+			//linear_ModeOfOperation := 6;
+			linear_controlword := 16#06;
+			IF (linear_statusword AND 16#0001) <> 0 THEN
+				linear_controlword := 16#07;
+			END_IF
+	
+			IF (linear_statusword AND 16#0002) <> 0 THEN
+				linear_controlword := 15;
+				linear_DriveEnabled := TRUE;
+				linear_ModeOfOperation := 6;
+			END_IF
+		END_IF
+		IF linear_DriveEnabled AND NOT linear_MotionActive THEN 
+			linear_TargetVelocity := 1500000;
+			linear_ProfileTargetacceleration := 1500000;
+			linear_ProfileTargetdeceleration := 1500000;
+			linear_ProfileTargetVelocity := 1500000;
+			linear_homingvelocity_fast := 20000;
+			linear_homingvelocity_slow := 20000;
+			linear_homingacceleration := 20000;
+			linear_homingmethod := 21;
+			linear_homing_offset := 1000;
+			linear_MotionActive := TRUE;
+			homing_flag := TRUE;
+			workingposition := 415000;
+			state := 2;
+	
+		END_IF
+					
+	2 : 
+		
+		IF IN_EStop AND NOT IN_partsensor AND homing_flag THEN
+			linear_controlword := 31;
+		END_IF
+		IF linear_actualposition = 1000  THEN 
+			linear_ModeOfOperation := 1;
+			homing_flag:= FALSE;
+			linear_controlword := 15;
+			Out_cyl := TRUE;
+			screw_reset := TRUE;
+			state := 3;
+		END_IF
+	
+		
+	3 : 
+		linear_controlword := 15;
+		IF IN_EStop AND NOT IN_partsensor AND In_resetPB AND NOT IN_rs_cyl_up  THEN
+			Out_cyl := FALSE;
+			screw_reset := FALSE;
+		END_IF
+		IF IN_EStop AND NOT IN_partsensor AND IN_rs_cyl_up  THEN
+			linear_controlword := 31;
+		END_IF
+		IF linear_actualposition = 415000 THEN 
+			linear_controlword := 15;
+			home_flag := TRUE;
+			state := 4;
+		END_IF
+	//	reset motor error
+		
+	4 : 
+		// clearing bit and rady new command
+	//	linear_controlword := 16#1E;
+		//IF (linear_statusword AND 16#0007) <> 0 THEN
+			IF home_flag THEN //AND NOT error_signal THEN
+				state := 5;
+			ELSIF workplace_flag THEN// AND NOT error_signal THEN
+				state := 6;
+			ELSIF out_flag THEN// AND NOT error_signal THEN
+				state :=  7;
+			//ELSIF error_signal THEN
+			//	state := 8;
+			// 
+			
+			END_IF
+	//	END_IF
+		
+	5 : 
+		linear_controlword  := 16#000F;
+		test_torque := FALSE;
+		motor1_torque := FALSE;
+		motor2_torque := FALSE;
+		motor3_torque := FALSE;
+		
+		
+		IF IN_auto AND IN_partsensor AND IN_EStop AND machine_ready AND IN_rs_cyl_up AND curtain_in_falling_edge THEN
+			home_flag := FALSE;
+			//working_position := linear_workingposition;
+			workingposition := 200000;
+			linear_controlword  := 31;
+		(*	IF (linear_statusword AND 5687) <> 0  THEN
+				//linear_controlword  := 16#000F;
+				workplace_flag:= TRUE;
+				state := 4;
+			END_IF
+			*)
+		END_IF
+		IF Manual_mode AND IN_partsensor AND IN_EStop AND machine_ready AND IN_rs_cyl_up AND IN_startIN_PB THEN
+			home_flag := FALSE;
+			//working_position := linear_workingposition;
+			workingposition := 200000;
+			linear_controlword  := 31;
+		(*	IF (linear_statusword AND 5687) <> 0  THEN
+				//linear_controlword  := 16#000F;
+				workplace_flag:= TRUE;
+				state := 4;
+			END_IF
+			*)
+		END_IF		
+		IF linear_actualposition >= 200000 AND linear_actualposition <= 200050 THEN
+				//linear_controlword  := 16#000F;
+				workplace_flag:= TRUE;
+				//curtain_in_falling_edge := FALSE;
+				state := 4;
+		END_IF
+		
+		
+	6 : 
+		linear_controlword  := 16#000F;
+		IF IN_auto AND test_torque AND IN_rs_cyl_up AND NOT not_safe THEN 
+			workplace_flag:= FALSE;
+			OUT_tower_green := TRUE ;
+			//out_position := linear_outposition;
+			workingposition  := 1000;
+			linear_controlword  := 31;
+			IF (linear_statusword AND 5687) <> 0 THEN
+				out_flag := TRUE;
+				state := 4;
+			END_IF
+		END_IF
+		
+		IF Manual_mode AND test_torque AND IN_rs_cyl_up AND NOT not_safe THEN 
+			workplace_flag:= FALSE;
+			//out_position := linear_outposition;
+			workingposition  := 1000;
+			linear_controlword  := 31;
+			IF (linear_statusword AND 5687) <> 0 THEN
+				out_flag := TRUE;
+				state := 4;
+			END_IF
+		END_IF
+		
+	7 : 
+		linear_controlword  := 16#000F;
+		IF (IN_auto AND curtain_out_falling_edge AND NOT IN_partsensor) OR (IN_manual AND IN_resetPB) OR (IN_auto AND locked_reset) THEN
+			out_flag := FALSE;
+			ib_torqueM1 := FALSE;   // untuk curtain sensor tu check lu process mesin ni macam mana
+			ib_torqueM2 := FALSE;
+			ib_torqueM3 := FALSE;
+			screw_reset := FALSE;
+			//home_position := linear_homeposition;
+			workingposition := 415000;
+			linear_controlword  := 31;
+			IF (linear_statusword AND 5687)<>0 THEN
+				home_flag := TRUE;
+				//curtain_out_falling_edge:= FALSE;
+				state := 4;
+			END_IF
+		END_IF	
+		
+		IF (Manual_mode AND IN_startOut_PB AND NOT IN_partsensor) OR (IN_manual AND IN_resetPB) OR (IN_auto AND locked_reset) THEN
+			out_flag := FALSE;
+			ib_torqueM1 := FALSE;   // untuk curtain sensor tu check lu process mesin ni macam mana
+			ib_torqueM2 := FALSE;
+			ib_torqueM3 := FALSE;
+
+			//home_position := linear_homeposition;
+			workingposition := 415000;
+			linear_controlword  := 31;
+			IF (linear_statusword AND 5687)<>0 THEN
+				home_flag := TRUE;
+				//curtain_out_falling_edge:= FALSE;
+				state := 4;
+			END_IF
+		END_IF	
+	8 : 
+		Out_cyl := FALSE;
+		workplace_flag:= FALSE;
+		home_flag := FALSE;
+		out_flag := FALSE;
+		linear_controlword  := 16#000F;
+		state := 7;
+	9 :  
+		//linear_controlword  := 15;
+		linear_DriveEnabled := FALSE;
+		linear_MotionActive := FALSE;
+		linear_controlword  := 0;
+		IF (IN_auto OR Manual_mode) AND need_initilize AND In_resetPB THEN
+			need_initilize := FALSE;
+			
+			Out_cyl := FALSE;
+			workplace_flag:= FALSE;
+			home_flag := FALSE;
+			out_flag := FALSE;
+			state := 1;
+			
+		END_IF
+	10 : 
+			//free mode
+		
+END_CASE		
+//------------------------------- 		AUTOMATION PROCESS		-----------------------------------------------------------------	
+
+IF (IN_auto OR Manual_mode) AND NOT error_signal AND IN_rs_cyl_up AND NOT part_cycle AND home_flag THEN
+	sendscrew_pulse := TRUE;
+ELSE 
+	sendscrew_pulse := FALSE;
+END_IF
+
+IF NOT error_signal AND NOT part_cycle AND allscrew_feed AND home_flag THEN 
+	machine_ready := TRUE;
+	OUT_tower_green := TRUE ;
+ELSE
+	machine_ready := FALSE;
+	OUT_tower_green := FALSE;
+END_IF
+
+//------------- screwing_process start and stop -----------------------------------
+
+IF (IN_auto OR Manual_mode) AND IN_EStop AND IN_rs_cyl_up  AND IN_partsensor AND workplace_flag AND NOT not_safe THEN
+	
+	OUT_cyl := TRUE;
+	machine_running := TRUE;
+	OUT_tower_yellow := TRUE;
+	part_cycle := TRUE;
+	
+ELSIF test_torque OR not_safe THEN
+
+	OUT_cyl := FALSE;
+	machine_running := FALSE;
+	OUT_tower_yellow := FALSE;
+	screw_reset := TRUE;
+	
+END_IF
+
+IF (IN_auto OR Manual_mode) AND NOT not_safe AND machine_running AND NOT test_torque THEN
+	servo_on := TRUE;
+ELSIF (IN_auto OR Manual_mode) AND (test_torque OR not_safe) THEN
+	servo_on := FALSE;
+	M1_ControlWord := 30;
+	M2_ControlWord := 30;
+	M3_ControlWord := 30;
+END_IF
+
+ 
+
+//------------- individual servo on / off ----------------------------
+(* nota kaki 
+
+if controlword = 31 dec motor start jalan, if control word = 30 the motor will turn off 
+*)
+IF M1_ActualTorque >= TorqueM1 THEN 
+  motor1_torque := TRUE;
+END_IF
+
+IF M2_ActualTorque >= TorqueM2 THEN 
+  motor2_torque := TRUE;
+END_IF
+IF M3_ActualTorque >= TorqueM3 THEN 
+  motor3_torque := TRUE;
+END_IF
+
+
+IF (IN_auto OR Manual_mode) AND NOT error_signal AND servo_on THEN
+	IF NOT motor1_torque THEN
+		M1_ControlWord := 16#1F;
+	ELSE
+		M1_ControlWord := 16#1E;
+	END_IF
+	IF NOT motor2_torque THEN
+		M2_ControlWord := 16#1F;
+	ELSE
+		M2_ControlWord := 16#1E;
+	END_IF	
+	IF NOT motor3_torque THEN
+		M3_ControlWord := 16#1F;
+	ELSE
+		M3_ControlWord := 16#1E;
+	END_IF	
+	
+END_IF
+
+//---------------------- testing torque ----------------------------
+// NI PON SALAH
+
+(*IF IN_auto AND servo_on THEN
+	IF motor1_torque OR motor2_torque OR motor3_torque THEN
+		TON1(IN := TRUE, PT := T#500MS);
+	END_IF
+	
+END_IF
+*)
+
+IF (IN_auto OR Manual_mode) AND servo_on AND (motor1_torque OR motor2_torque OR motor3_torque) THEN  // salah satu torque start baca
+	StartTimer := TRUE;
+	HmiPulse := TRUE;
+ELSIF (IN_auto OR Manual_mode) AND servo_on THEN
+	ErrorTimer := TRUE;
+	HmiPulse := TRUE;
+END_IF
+
+IF TON1.Q THEN 
+	test_torque := TRUE;
+	StartTimer := FALSE;
+	HmiPulse := FALSE;
+END_IF
+IF TON2.Q THEN 
+	test_torque := TRUE;
+	ErrorTimer := FALSE;
+	HmiPulse := FALSE;
+END_IF
+
+IF (IN_auto OR Manual_mode) THEN		// hold signal torque motor pi ib
+	IF motor1_torque THEN
+		TON3 (IN := TRUE, PT := T#500MS);
+	END_IF 
+	IF motor2_torque THEN
+		TON4 (IN := TRUE, PT := T#500MS);
+	END_IF
+	IF motor3_torque THEN
+		TON5 (IN := TRUE, PT := T#500MS);
+	END_IF
+END_IF
+
+
+IF test_torque THEN 
+	            // signal tk hmi 
+	
+END_IF
+
+//-------------------------------------------------------------------
+//----- error torque ---------
+
+IF (IN_auto OR Manual_mode) AND test_torque AND NOT (motor1_torque AND motor2_torque AND motor3_torque) THEN
+	torque_error := TRUE ;
+	OUT_tower_red  := TRUE ;
+END_IF
+
+IF (IN_auto OR Manual_mode) AND home_flag AND error_signal AND linear_actualposition > 414950 THEN
+	Out_cyl := TRUE;
+END_IF
+
+
+IF (IN_auto OR Manual_mode) AND home_flag AND error_signal AND NOT IN_rs_cyl_up AND IN_resetPB THEN
+	Out_cyl := FALSE;
+	torque_error := FALSE;
+	error_signal := FALSE;
+	OUT_tower_red := 0;
+END_IF
+
+IF IN_manual AND locked_reset THEN 
+	torque_error := FALSE;
+	OUT_tower_red := FALSE;
+END_IF
+
+//----------------------------------------
+ 
+IF NOT IN_Auto AND NOT main_page THEN
+	IF servo_M1 AND NOT motor1_torque THEN 
+		M1_ControlWord := 16#1F;
+	ELSIF NOT servo_M1 OR motor1_torque THEN
+		M1_ControlWord := 16#1E;
+		motor1_torque := FALSE;
+		servo_M1 := FALSE;
+	END_IF
+	
+	IF servo_M2 AND NOT motor2_torque THEN 
+		M2_ControlWord := 16#1F;
+	ELSIF NOT servo_m2 OR  motor2_torque THEN
+		M2_ControlWord := 16#1E;
+		motor2_torque := FALSE;
+		servo_M2 := FALSE;
+	END_IF
+	IF servo_M3 THEN 
+		M3_ControlWord := 16#1F;
+	ELSIF NOT servo_m3 OR motor3_torque THEN
+		M3_ControlWord := 16#1E;
+		motor3_torque := FALSE;
+		servo_M3 := FALSE;
+	END_IF
+END_IF
+
+IF error_signal THEN
+tBeat(IN := TRUE, PT := T#250MS);
+
+IF tBeat.Q AND STEP <= 57 THEN
+    tBeat(IN := FALSE);
+    tBeat(IN := TRUE);
+    Step := Step + 1;
+END_IF;
+
+CASE Step OF
+    // 🕵️ tick… tick…
+    1:  Buzzer := TRUE;
+    2,3,4,5,6,7,8,9,10: Buzzer := FALSE;
+    11:  Buzzer := TRUE;
+    12,13,14,15,16,17,18,19: Buzzer := FALSE;
+    20:  Buzzer := TRUE;
+    21,22,23,24,25,26,27: Buzzer := FALSE;
+	28:  Buzzer := TRUE;
+    29,30,31,32,33,34: Buzzer := FALSE;
+	35:  Buzzer := TRUE;
+    36,37,38,39,40: Buzzer := FALSE;
+	41:  Buzzer := TRUE;
+    42,43,44,45: Buzzer := FALSE;
+	46:  Buzzer := TRUE;
+    47,48,49: Buzzer := FALSE;
+	50:  Buzzer := TRUE;
+    51,52: Buzzer := FALSE;
+	53:  Buzzer := TRUE;
+    54,55: Buzzer := FALSE;
+    56: Buzzer := TRUE;
+    
+END_CASE;
+ELSIF NOT error_signal THEN
+	buzzer := FALSE;
+	Step := 0;
+END_IF]]></ST>
+    </Implementation>
+    <LineIds Name="MAIN">
+      <LineId Id="1417" Count="0" />
+      <LineId Id="82" Count="0" />
+      <LineId Id="1048" Count="0" />
+      <LineId Id="1042" Count="0" />
+      <LineId Id="1049" Count="1" />
+      <LineId Id="1053" Count="0" />
+      <LineId Id="1051" Count="0" />
+      <LineId Id="1054" Count="1" />
+      <LineId Id="1157" Count="1" />
+      <LineId Id="1162" Count="0" />
+      <LineId Id="1341" Count="1" />
+      <LineId Id="89" Count="2" />
+      <LineId Id="1122" Count="0" />
+      <LineId Id="1718" Count="0" />
+      <LineId Id="2226" Count="0" />
+      <LineId Id="1915" Count="0" />
+      <LineId Id="2905" Count="0" />
+      <LineId Id="1123" Count="1" />
+      <LineId Id="1166" Count="0" />
+      <LineId Id="1172" Count="0" />
+      <LineId Id="1185" Count="1" />
+      <LineId Id="2149" Count="0" />
+      <LineId Id="2148" Count="0" />
+      <LineId Id="1904" Count="0" />
+      <LineId Id="1890" Count="0" />
+      <LineId Id="1897" Count="0" />
+      <LineId Id="1892" Count="0" />
+      <LineId Id="1905" Count="0" />
+      <LineId Id="1893" Count="1" />
+      <LineId Id="1903" Count="0" />
+      <LineId Id="1906" Count="0" />
+      <LineId Id="1899" Count="2" />
+      <LineId Id="1907" Count="0" />
+      <LineId Id="1902" Count="0" />
+      <LineId Id="1898" Count="0" />
+      <LineId Id="1891" Count="0" />
+      <LineId Id="1175" Count="1" />
+      <LineId Id="2326" Count="0" />
+      <LineId Id="2330" Count="1" />
+      <LineId Id="2333" Count="0" />
+      <LineId Id="2327" Count="0" />
+      <LineId Id="1177" Count="7" />
+      <LineId Id="828" Count="1" />
+      <LineId Id="827" Count="0" />
+      <LineId Id="819" Count="0" />
+      <LineId Id="831" Count="0" />
+      <LineId Id="94" Count="0" />
+      <LineId Id="832" Count="0" />
+      <LineId Id="835" Count="0" />
+      <LineId Id="833" Count="0" />
+      <LineId Id="1058" Count="0" />
+      <LineId Id="1057" Count="0" />
+      <LineId Id="1059" Count="0" />
+      <LineId Id="1061" Count="5" />
+      <LineId Id="1069" Count="1" />
+      <LineId Id="1067" Count="0" />
+      <LineId Id="1060" Count="0" />
+      <LineId Id="1074" Count="4" />
+      <LineId Id="1085" Count="17" />
+      <LineId Id="1072" Count="0" />
+      <LineId Id="1103" Count="0" />
+      <LineId Id="95" Count="28" />
+      <LineId Id="125" Count="23" />
+      <LineId Id="152" Count="0" />
+      <LineId Id="2436" Count="0" />
+      <LineId Id="2806" Count="0" />
+      <LineId Id="2440" Count="0" />
+      <LineId Id="2803" Count="0" />
+      <LineId Id="2437" Count="0" />
+      <LineId Id="2441" Count="0" />
+      <LineId Id="153" Count="0" />
+      <LineId Id="2435" Count="0" />
+      <LineId Id="2430" Count="0" />
+      <LineId Id="155" Count="0" />
+      <LineId Id="2807" Count="0" />
+      <LineId Id="156" Count="4" />
+      <LineId Id="2431" Count="0" />
+      <LineId Id="161" Count="1" />
+      <LineId Id="2808" Count="0" />
+      <LineId Id="163" Count="4" />
+      <LineId Id="2432" Count="0" />
+      <LineId Id="168" Count="1" />
+      <LineId Id="2809" Count="0" />
+      <LineId Id="170" Count="12" />
+      <LineId Id="790" Count="3" />
+      <LineId Id="646" Count="0" />
+      <LineId Id="333" Count="0" />
+      <LineId Id="2003" Count="0" />
+      <LineId Id="2801" Count="0" />
+      <LineId Id="2004" Count="21" />
+      <LineId Id="2048" Count="0" />
+      <LineId Id="2056" Count="0" />
+      <LineId Id="2037" Count="0" />
+      <LineId Id="2026" Count="0" />
+      <LineId Id="334" Count="1" />
+      <LineId Id="337" Count="1" />
+      <LineId Id="1454" Count="0" />
+      <LineId Id="2027" Count="1" />
+      <LineId Id="2031" Count="0" />
+      <LineId Id="2057" Count="0" />
+      <LineId Id="2052" Count="0" />
+      <LineId Id="2054" Count="0" />
+      <LineId Id="2058" Count="0" />
+      <LineId Id="2792" Count="0" />
+      <LineId Id="2034" Count="0" />
+      <LineId Id="2033" Count="0" />
+      <LineId Id="339" Count="2" />
+      <LineId Id="2046" Count="0" />
+      <LineId Id="2038" Count="1" />
+      <LineId Id="2793" Count="0" />
+      <LineId Id="2040" Count="0" />
+      <LineId Id="2061" Count="1" />
+      <LineId Id="2060" Count="0" />
+      <LineId Id="2041" Count="3" />
+      <LineId Id="342" Count="4" />
+      <LineId Id="1136" Count="2" />
+      <LineId Id="1141" Count="4" />
+      <LineId Id="2231" Count="0" />
+      <LineId Id="2233" Count="0" />
+      <LineId Id="2232" Count="0" />
+      <LineId Id="2066" Count="0" />
+      <LineId Id="1155" Count="0" />
+      <LineId Id="347" Count="3" />
+      <LineId Id="1799" Count="0" />
+      <LineId Id="1909" Count="1" />
+      <LineId Id="1908" Count="0" />
+      <LineId Id="2900" Count="0" />
+      <LineId Id="2899" Count="0" />
+      <LineId Id="351" Count="2" />
+      <LineId Id="1613" Count="0" />
+      <LineId Id="1146" Count="0" />
+      <LineId Id="354" Count="0" />
+      <LineId Id="1619" Count="0" />
+      <LineId Id="355" Count="4" />
+      <LineId Id="2163" Count="10" />
+      <LineId Id="2151" Count="0" />
+      <LineId Id="1803" Count="2" />
+      <LineId Id="1895" Count="0" />
+      <LineId Id="1806" Count="0" />
+      <LineId Id="1802" Count="0" />
+      <LineId Id="1801" Count="0" />
+      <LineId Id="360" Count="4" />
+      <LineId Id="2450" Count="0" />
+      <LineId Id="1148" Count="0" />
+      <LineId Id="1614" Count="0" />
+      <LineId Id="1149" Count="0" />
+      <LineId Id="366" Count="3" />
+      <LineId Id="2174" Count="0" />
+      <LineId Id="2196" Count="0" />
+      <LineId Id="2185" Count="8" />
+      <LineId Id="2184" Count="0" />
+      <LineId Id="2194" Count="0" />
+      <LineId Id="371" Count="6" />
+      <LineId Id="2901" Count="0" />
+      <LineId Id="1152" Count="0" />
+      <LineId Id="1616" Count="0" />
+      <LineId Id="378" Count="2" />
+      <LineId Id="1896" Count="0" />
+      <LineId Id="381" Count="2" />
+      <LineId Id="2197" Count="0" />
+      <LineId Id="2199" Count="13" />
+      <LineId Id="2198" Count="0" />
+      <LineId Id="2234" Count="0" />
+      <LineId Id="2236" Count="0" />
+      <LineId Id="2238" Count="0" />
+      <LineId Id="2240" Count="1" />
+      <LineId Id="2243" Count="0" />
+      <LineId Id="2242" Count="0" />
+      <LineId Id="2438" Count="0" />
+      <LineId Id="2795" Count="1" />
+      <LineId Id="2794" Count="0" />
+      <LineId Id="2797" Count="0" />
+      <LineId Id="2442" Count="0" />
+      <LineId Id="2800" Count="0" />
+      <LineId Id="2799" Count="0" />
+      <LineId Id="2445" Count="4" />
+      <LineId Id="2798" Count="0" />
+      <LineId Id="2444" Count="0" />
+      <LineId Id="2804" Count="1" />
+      <LineId Id="2439" Count="0" />
+      <LineId Id="497" Count="0" />
+      <LineId Id="385" Count="0" />
+      <LineId Id="1599" Count="0" />
+      <LineId Id="386" Count="0" />
+      <LineId Id="1913" Count="0" />
+      <LineId Id="1911" Count="1" />
+      <LineId Id="1600" Count="0" />
+      <LineId Id="390" Count="30" />
+      <LineId Id="1258" Count="2" />
+      <LineId Id="421" Count="1" />
+      <LineId Id="1455" Count="0" />
+      <LineId Id="423" Count="2" />
+      <LineId Id="838" Count="0" />
+      <LineId Id="837" Count="0" />
+      <LineId Id="839" Count="0" />
+      <LineId Id="841" Count="0" />
+      <LineId Id="1694" Count="0" />
+      <LineId Id="1693" Count="0" />
+      <LineId Id="1702" Count="2" />
+      <LineId Id="1701" Count="0" />
+      <LineId Id="1708" Count="1" />
+      <LineId Id="1707" Count="0" />
+      <LineId Id="1700" Count="0" />
+      <LineId Id="1696" Count="0" />
+      <LineId Id="426" Count="20" />
+      <LineId Id="1333" Count="0" />
+      <LineId Id="1332" Count="0" />
+      <LineId Id="1336" Count="0" />
+      <LineId Id="1339" Count="0" />
+      <LineId Id="1338" Count="0" />
+      <LineId Id="1345" Count="0" />
+      <LineId Id="1335" Count="0" />
+      <LineId Id="1344" Count="0" />
+      <LineId Id="1343" Count="0" />
+      <LineId Id="447" Count="1" />
+      <LineId Id="2903" Count="0" />
+      <LineId Id="449" Count="1" />
+      <LineId Id="2906" Count="0" />
+      <LineId Id="451" Count="0" />
+      <LineId Id="1720" Count="0" />
+      <LineId Id="1719" Count="0" />
+      <LineId Id="1721" Count="0" />
+      <LineId Id="1723" Count="0" />
+      <LineId Id="2907" Count="0" />
+      <LineId Id="1722" Count="0" />
+      <LineId Id="2228" Count="2" />
+      <LineId Id="2908" Count="0" />
+      <LineId Id="2227" Count="0" />
+      <LineId Id="452" Count="2" />
+      <LineId Id="1127" Count="0" />
+      <LineId Id="456" Count="10" />
+      <LineId Id="2902" Count="0" />
+      <LineId Id="467" Count="1" />
+      <LineId Id="499" Count="0" />
+      <LineId Id="469" Count="6" />
+      <LineId Id="2218" Count="1" />
+      <LineId Id="2222" Count="1" />
+      <LineId Id="2217" Count="0" />
+      <LineId Id="476" Count="1" />
+      <LineId Id="2224" Count="0" />
+      <LineId Id="478" Count="0" />
+      <LineId Id="1527" Count="0" />
+      <LineId Id="479" Count="9" />
+      <LineId Id="1601" Count="1" />
+      <LineId Id="1604" Count="0" />
+      <LineId Id="2419" Count="1" />
+      <LineId Id="2427" Count="0" />
+      <LineId Id="2909" Count="0" />
+      <LineId Id="1605" Count="0" />
+      <LineId Id="2421" Count="0" />
+      <LineId Id="1609" Count="1" />
+      <LineId Id="2422" Count="1" />
+      <LineId Id="2428" Count="0" />
+      <LineId Id="2910" Count="0" />
+      <LineId Id="1608" Count="0" />
+      <LineId Id="1611" Count="1" />
+      <LineId Id="2425" Count="1" />
+      <LineId Id="2429" Count="0" />
+      <LineId Id="2911" Count="0" />
+      <LineId Id="1607" Count="0" />
+      <LineId Id="1603" Count="0" />
+      <LineId Id="2785" Count="0" />
+      <LineId Id="2682" Count="12" />
+      <LineId Id="2770" Count="0" />
+      <LineId Id="2695" Count="0" />
+      <LineId Id="2771" Count="0" />
+      <LineId Id="2724" Count="0" />
+      <LineId Id="2772" Count="8" />
+      <LineId Id="2782" Count="2" />
+      <LineId Id="2725" Count="0" />
+      <LineId Id="2728" Count="1" />
+      <LineId Id="2" Count="0" />
+      <LineId Id="2786" Count="0" />
+      <LineId Id="2811" Count="0" />
+      <LineId Id="2787" Count="0" />
+    </LineIds>
+  </POU>
+</TcPlcObject>

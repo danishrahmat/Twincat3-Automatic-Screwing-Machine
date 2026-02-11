@@ -1,0 +1,35 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.14">
+  <GVL Name="GVL" Id="{9956d820-0fa1-430d-b6e3-a79aedde0283}">
+    <Declaration><![CDATA[    {attribute 'Export' := TRUE}
+
+(*VAR_GLOBAL
+	PositionX : LREAL;
+	PositionY : LREAL;
+	PositionZ : LREAL;
+	PositionTheta : LREAL;
+	offset_X : LREAL;
+	offset_Y : LREAL;
+	offset_Theta: LREAL;
+	
+END_VAR
+*)
+VAR_GLOBAL PERSISTENT
+	
+	SpeedM1 : DINT;
+	SpeedM2 : DINT;
+	SpeedM3 : DINT;
+	
+	TorqueM1 : DINT;
+	TorqueM2 : DINT;
+	TorqueM3 : DINT;
+	
+	SpeedLinear : DINT;
+	TorqueLinear : UINT;
+	homeposition : DINT;
+	workingposition : DINT;
+	outposition : DINT;
+	
+END_VAR]]></Declaration>
+  </GVL>
+</TcPlcObject>
