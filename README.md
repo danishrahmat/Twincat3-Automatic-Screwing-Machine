@@ -47,8 +47,11 @@ Semi-automatic production equipment
 📂 Repository Structure
 
 Control program files
+
 Project configuration files
+
 Machine logic and sequence control
+
 Supporting documentation
 
 ⚠️ Disclaimer
